@@ -441,14 +441,18 @@ class Sample:
         self.texts = []
         self.other_data = {}
 
-    def load_from_grounding_label(self, grounding_data):
+    def load_from_grounding_label(self, grounding_data: dict | str | Path):
+
+        if isinstance(grounding_data, Path):
+            grounding_data = str(grounding_data)
+
         if isinstance(grounding_data, str):
             assert grounding_data.endswith(".json"), "If grounding_data is str, it should be a json file path."
             import json
             with open(grounding_data, 'r') as f:
                 grounding_data = json.load(f)
 
-        assert isinstance(grounding_data, dict), "grounding_data should be a dict"
+            assert isinstance(grounding_data, dict), "grounding_data should be a dict"
         self.im_file = grounding_data.get("im_file")
         self.shape = grounding_data.get("shape")
         for text in grounding_data.get("texts"):
@@ -465,6 +469,9 @@ class Sample:
         self.other_data["normalized"] = normalized
         assert normalized is True
         # assert bbox_format == "xywhn"
+        segments=grounding_data.get("segments", [])
+        if len(segments)==0:
+            grounding_data["segments"]=[None for _ in range(len(grounding_data.get("bboxes", [])))]
         for cls, box, segment in zip(grounding_data.get("cls", []), grounding_data.get("bboxes", []), grounding_data.get("segments", [])):
             # Convert normalized xywh to xyxy for internal consistency
             bbox_xyxy = YoloBox(self.shape).load_from_xywhn_normalized(np.array([box], dtype=np.float32)).xyxy[0]
@@ -483,7 +490,7 @@ class Sample:
             assert isinstance(text, str)
             inst.set_text([self.texts[cls]], [-1])
             self.instances.append(inst)
-
+        return self
     # def to_grounding_label(self) -> dict:
     #     grounding_data = {}
     #     grounding_data['im_file'] = self.im_file
@@ -559,6 +566,7 @@ class Sample:
             inst.from_dict(inst_data)
             self.instances.append(inst)
         self.other_data = data.get('other_data', {})
+
 
 class DataEngineAgent:
     def __init__(self, devices=["cuda:0"], buffer_dir="/root/ultra_louis_work/engine_buffer"):
@@ -768,7 +776,7 @@ if __name__ == "__main__":
     # mobileclip_text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
 
 
-    DATA="mixed_grounding"  # "mixed_grounding"
+    DATA="flickr"  # "mixed_grounding"
 
     if DATA=="flickr":
 
