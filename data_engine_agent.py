@@ -1,4 +1,4 @@
-from git import List
+
 from matplotlib.pylab import sample
 import ultralytics,os
 workspace = os.path.dirname(os.path.dirname(os.path.abspath(ultralytics.__file__)))
@@ -167,7 +167,7 @@ def _batch_model_predict_single_process(self,buffer_dir, im_files, **kwargs):
     """
     assert isinstance(self, DataEngine)
     engine=self
-    dst_dir = os.path.join(buffer_dir, "model_predict")
+    dst_dir = os.path.join(buffer_dir, "2model_predict")
     os.makedirs(dst_dir, exist_ok=True)
     conf = kwargs.get("conf", 0.5)
     iou = kwargs.get("iou", 0.4)
@@ -222,7 +222,7 @@ def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json
         sample_json: str, path to sample grounding label json file
         model_predict_json: str, path to model prediction json file
     """
-    dst_dir = os.path.join(buffer_dir, "merge_prediction")
+    dst_dir = os.path.join(buffer_dir, "3merge_prediction")
     os.makedirs(dst_dir, exist_ok=True)
     sample_basename = os.path.basename(sample_json)
     dst_file = os.path.join(dst_dir, sample_basename)
@@ -342,6 +342,9 @@ class YoloBox:
                 # attempt generic conversion
                 arr = np.array(x, dtype=np.float32)
 
+            # Squeeze excessive dims e.g., (1,1,4) -> (1,4)
+            if arr.ndim > 2:
+                arr = arr.reshape(-1, arr.shape[-1])
             # Normalize shape: if 1D length==4 -> (1,4)
             if arr.ndim == 1 and arr.size == 4:
                 arr = arr.reshape(1, 4)
@@ -422,15 +425,31 @@ class Instance:
             'text': to_serializable(self.text),
             'conf': to_serializable(self.conf),
             'embed': to_serializable(self.embed),
-            'vp': to_serializable(self.vpe),
+            'vpe': to_serializable(self.vpe),
             'other_data': to_serializable(self.other_data)
         }
     def from_dict(self, data: dict):
-        self.bbox = data.get('bbox')
+        # Normalize bbox to 1D length-4 if possible
+        bbox = data.get('bbox')
+        if bbox is not None:
+            try:
+                arr = np.array(bbox, dtype=np.float32)
+                if arr.ndim > 1:
+                    arr = arr.reshape(-1, 4)[0]
+                elif arr.ndim == 1 and arr.size == 4:
+                    pass
+                else:
+                    # leave as-is; upper layer may skip if malformed
+                    pass
+                bbox = arr.tolist()
+            except Exception:
+                pass
+        self.bbox = bbox
         self.text = data.get('text')
         self.conf = data.get('conf')
         self.embed = data.get('embed')
-        self.vpe = data.get('vpe')
+        # backward compatibility: some files may use 'vp' key
+        self.vpe = data.get('vpe', data.get('vp'))
         self.other_data = data.get('other_data', {})
 
 class Sample:
@@ -440,6 +459,15 @@ class Sample:
         self.instances = []
         self.texts = []
         self.other_data = {}
+
+    @property
+    def all_texts(self):
+        unique_texts = set()
+        for inst in self.instances:
+            if inst.text:
+                unique_texts.update(inst.text)
+        return list(unique_texts)
+    
 
     def load_from_grounding_label(self, grounding_data: dict | str | Path):
 
@@ -491,26 +519,55 @@ class Sample:
             inst.set_text([self.texts[cls]], [-1])
             self.instances.append(inst)
         return self
-    # def to_grounding_label(self) -> dict:
-    #     grounding_data = {}
-    #     grounding_data['im_file'] = self.im_file
-    #     grounding_data['shape'] = self.shape
-    #     grounding_data['texts'] = [[text] for text in self.texts]
-    #     bboxes = []
-    #     segments = []
-    #     cls_list = []
-    #     for inst in self.instances:
-    #         bboxes.append(inst.bbox)
-    #         segments.append(inst.segment)
-    #         text, _ = inst.get_top_text_conf()
-    #         cls_index = self.texts.index(text)
-    #         cls_list.append(cls_index)
-    #     grounding_data['bboxes'] = bboxes
-    #     grounding_data['segments'] = segments
-    #     grounding_data['cls'] = cls_list
-    #     grounding_data['normalized'] = True
-    #     grounding_data['bbox_format'] = 'xywhn'
-    #     return grounding_data
+  
+
+
+    def to_grounding_label(self) -> dict:
+        grounding_data = {}
+        grounding_data['im_file'] = self.im_file
+        
+        def get_shape(im_file):
+            from PIL import Image
+            with Image.open(im_file) as img:
+                return img.height, img.width
+            
+        if self.shape:
+        
+            grounding_data['shape'] = self.shape
+        else:
+            grounding_data['shape'] = get_shape(self.im_file)
+
+
+        texts= self.all_texts
+        # store as [[text]] for compatibility
+        grounding_data['texts'] = [[t] for t in texts]
+        bboxes = []
+        segments = []
+        cls_list = []
+        for inst in self.instances:
+            # Normalize bbox input shape to 1D length-4
+            try:
+                bb = np.array(inst.bbox, dtype=np.float32).reshape(-1, 4)[0]
+            except Exception:
+                # skip invalid bbox
+                continue
+            bbox_n = YoloBox(grounding_data['shape']).load_from_xyxy(bb).xywhn[0]
+            bboxes.append(bbox_n)
+            # keep segments if valid else empty
+            segments.append(inst.segment if isinstance(inst.segment, np.ndarray) else [])
+            text, _ = inst.get_top_text_conf()
+            if text not in texts:
+                texts.append(text)
+                grounding_data['texts'].append([text])
+            cls_index = texts.index(text)
+            cls_list.append(cls_index)
+        grounding_data['bboxes'] = np.array(bboxes, dtype=np.float32).reshape(-1, 4)
+        grounding_data['cls'] = np.array(cls_list, dtype=np.float32).reshape(-1, 1)
+        grounding_data['normalized'] = True
+        grounding_data['bbox_format'] = 'xywh'
+
+
+        return grounding_data
 
     def load_from_yoloe_result(self, yoloe_result):
         
@@ -534,6 +591,7 @@ class Sample:
             names = yoloe_result.names
         for box in boxes:
             bbox_xyxy = box.xyxy.cpu().numpy()
+            bbox_xyxy = np.array(bbox_xyxy, dtype=np.float32).reshape(-1, 4)[0]
             conf = box.conf.cpu().numpy()
             cls = int(box.cls.cpu().numpy())
             inst = Instance(bbox=bbox_xyxy.tolist())
@@ -566,6 +624,7 @@ class Sample:
             inst.from_dict(inst_data)
             self.instances.append(inst)
         self.other_data = data.get('other_data', {})
+        return self
 
 
 class DataEngineAgent:
@@ -657,7 +716,7 @@ class DataEngineAgent:
                 imname = imid_imname[f"{imid:d}"]
                 ann["caption"] = images_data[f"{ann['image_id']:d}"]["caption"]
                 imname_anns_data[imname].append(ann)
-            folder_name = "grounding_data_merged"
+            folder_name = "1grounding_data_merged"
         else:
             imname_anns_data = None
             folder_name = "grounding_data"
@@ -776,7 +835,7 @@ if __name__ == "__main__":
     # mobileclip_text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
 
 
-    DATA="flickr"  # "mixed_grounding"
+    DATA="mixed_grounding"  # "mixed_grounding"
 
     if DATA=="flickr":
 
@@ -792,8 +851,8 @@ if __name__ == "__main__":
         name_list = list   (txt_map.keys())[:50000]
         # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4, batch_size=2)
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/grounding_data_merged",
-                                            predict_json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/model_predict",
+        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/1grounding_data_merged",
+                                            predict_json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/2model_predict",
                                             max_workers=8)
 
     elif DATA=="mixed_grounding":
@@ -811,8 +870,8 @@ if __name__ == "__main__":
 
 
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/grounding_data_merged",
-                                            predict_json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/model_predict",
+        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/1grounding_data_merged",
+                                            predict_json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/2model_predict",
                                             max_workers=8)
 
     # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
