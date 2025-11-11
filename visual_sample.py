@@ -174,135 +174,34 @@ def load_from_json(json_path: Path | str) -> Sample:
 
 
 
-def _resolve_image_path(sample: Sample, image_root: Path | str | None = None) -> Path:
-    """Resolve the image path for a sample, considering optional root hints."""
 
-    if sample.im_file is None:
-        raise ValueError("Sample does not specify an image file")
-
-    candidates = []
-    raw_path = Path(sample.im_file)
-
-    if raw_path.is_absolute():
-        candidates.append(raw_path)
-    else:
-        candidates.append(Path.cwd() / raw_path)
-        source_json = sample.other_data.get("_source_json")
-        if source_json is not None:
-            candidates.append(Path(source_json).parent / raw_path)
-        if image_root is not None:
-            candidates.append(Path(image_root) / raw_path)
-
-    for candidate in candidates:
-        candidate = candidate.resolve()
-        if candidate.is_file():
-            return candidate
-
-    raise FileNotFoundError(f"Unable to locate image file for sample: {sample.im_file}")
-
-
-def sample_to_results(sample: Sample, image_root: Path | str | None = None) -> List[Results]:
-    """Convert a `Sample` into a list containing a single Ultralytics `Results` object."""
-
-    img_path = _resolve_image_path(sample, image_root=image_root)
-    orig_img = np.array(Image.open(img_path).convert("RGB"))
-
-    text_instances={}
-    all_instances=[]
-    for inst in sample.instances:
-        if inst.text[0] not in text_instances.keys():
-            text_instances[inst.text[0]]=[]
-        text_instances[inst.text[0]].append(inst)
-        all_instances.append(inst)
-    text_instances["all_instances"]=all_instances
-
-
-    text_result = {}
-
-    for text, instances in text_instances.items():
-
-        boxes_data: List[List[float]] = []
-        names: List[str] = []
-        name_to_idx: Dict[str, int] = {}
-
-        for inst in instances:
-            bbox_array = np.array(inst.bbox, dtype=np.float32).reshape(-1, 4)
-            if bbox_array.size == 0:
-                continue
-
-            label = inst.text[0] if inst.text else "unknown"
-            if label not in name_to_idx:
-                name_to_idx[label] = len(names)
-                names.append(label)
-            cls_idx = float(name_to_idx[label])
-
-            conf_value = float(inst.conf[0]) if inst.conf else 0.0
-
-            for bbox in bbox_array:
-                boxes_data.append([
-                    float(bbox[0]),
-                    float(bbox[1]),
-                    float(bbox[2]),
-                    float(bbox[3]),
-                    conf_value,
-                    cls_idx,
-                ])
-        print(names)
-        boxes_tensor = torch.from_numpy(np.array(boxes_data, dtype=np.float32)) if boxes_data else torch.zeros((0, 6), dtype=torch.float32)
-        names_dict = {idx: name for idx, name in enumerate(names)}
-
-        result = Results(
-            orig_img=orig_img,
-            path=str(img_path),
-            names=names_dict,
-            boxes=boxes_tensor,
-        )
-        text_result[text]=result
-    return text_result
-
-def visualize_sample(sample: Sample, dst_vis_img: Path | str, image_root: Path | str | None = None) -> Path:
-    """Render sample predictions to an image and save it to ``dst_vis_img``."""
-
-    text_result = sample_to_results(sample, image_root=image_root)
-    dst_vis_path = Path(dst_vis_img)
-    dst_vis_path.parent.mkdir(parents=True, exist_ok=True)
-
-    for text, results in text_result.items():
-        # split the dst_vis_path into name and ext
-        name = dst_vis_path.stem
-        ext = dst_vis_path.suffix
-        parent = dst_vis_path.parent
-        new_dst_vis_path = parent / f"{name}_{text}{ext}"
-
-        results.save(str(new_dst_vis_path))
-
-    return dst_vis_path
 
 
 
 if __name__ == "__main__":
+    pass
 
-    split="grounding_data_merged"
+    # split="grounding_data_merged"
 
-    json_path = Path(f"/root/ultra_louis_work/runs/flickr_engine_buffer/{split}/2.json")
+    # json_path = Path(f"/root/ultra_louis_work/runs/flickr_engine_buffer/{split}/2.json")
 
-    print("Loading sample from:", json_path)
-    sam=Sample()
-    sample=sam.load_from_grounding_label(json_path)
+    # print("Loading sample from:", json_path)
+    # sam=Sample()
+    # sample=sam.load_from_grounding_label(json_path)
 
-    print(f"Loaded {len(sample.instances)} instances from {sample.im_file}")
-    output_path = Path(f"../visual_json_{split}/visual_img.jpg")
-    saved_path = visualize_sample(sample, output_path)
-    print(f"Saved visualization to {saved_path}")
-
-
+    # print(f"Loaded {len(sample.instances)} instances from {sample.im_file}")
+    # output_path = Path(f"../visual_json_{split}/visual_img.jpg")
+    # saved_path = visualize_sample(sample, output_path)
+    # print(f"Saved visualization to {saved_path}")
 
 
-    split="merge_prediction"
 
-    json_path = Path(f"/root/ultra_louis_work/runs/flickr_engine_buffer/{split}/2.json")
-    sample = load_from_json(json_path)
-    print(f"Loaded {len(sample.instances)} instances from {sample.im_file}")
-    output_path = Path(f"../visual_json_{split}/visual_img.jpg")
-    saved_path = visualize_sample(sample, output_path)
-    print(f"Saved visualization to {saved_path}")
+
+    # split="merge_prediction"
+
+    # json_path = Path(f"/root/ultra_louis_work/runs/flickr_engine_buffer/{split}/2.json")
+    # sample = load_from_json(json_path)
+    # print(f"Loaded {len(sample.instances)} instances from {sample.im_file}")
+    # output_path = Path(f"../visual_json_{split}/visual_img.jpg")
+    # saved_path = visualize_sample(sample, output_path)
+    # print(f"Saved visualization to {saved_path}")
