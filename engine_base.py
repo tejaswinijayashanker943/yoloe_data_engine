@@ -464,6 +464,7 @@ class Sample:
     def to_dict(self):
         return {
             'im_file': to_serializable(self.im_file),
+            "shape": to_serializable(self.shape),
             'instances': [inst.to_dict() for inst in self.instances],
             'other_data': to_serializable(self.other_data)
         }
@@ -481,6 +482,7 @@ class Sample:
         with open(json_path, 'r') as f:
             data = json.load(f)
         self.im_file = data.get('im_file')
+        self.shape= data.get('shape',None)
         self.instances = []
         for inst_data in data.get('instances', []):
             inst = Instance()
@@ -613,19 +615,24 @@ def visualize_sample(sample: Sample, dst_vis_img: Path | str, image_root: Path |
 
 
 if __name__ == "__main__":
-    sam= Sample().load_from_yolo_txt(im_file="/root/ultra_louis_work/datasets/Objects365v1_5000/images/train/obj365_train_000000000003.jpg",
-                                     txt_path="/root/ultra_louis_work/datasets/Objects365v1_5000/labels/train/obj365_train_000000000003.txt", yaml_file="/root/ultra_louis_work/datasets/Objects365v1.yaml")
+    # sam= Sample().load_from_yolo_txt(im_file="/root/ultra_louis_work/datasets/Objects365v1_5000/images/train/obj365_train_000000000003.jpg",
+    #                                  txt_path="/root/ultra_louis_work/datasets/Objects365v1_5000/labels/train/obj365_train_000000000003.txt", yaml_file="/root/ultra_louis_work/datasets/Objects365v1.yaml")
 
 
-    sam.save_to_yolo_txt(txt_path="../runs/visual_yolo_txt/obj365_train_000000000003_saved.txt",inst_format="bbox")
+    # sam.save_to_yolo_txt(txt_path="../runs/visual_yolo_txt/obj365_train_000000000003_saved.txt",inst_format="bbox")
 
 
-    sam2=Sample().load_from_yolo_txt(im_file="/root/ultra_louis_work/datasets/Objects365v1_5000/images/train/obj365_train_000000000003.jpg", txt_path="../runs/visual_yolo_txt/obj365_train_000000000003_saved.txt", yaml_file="/root/ultra_louis_work/datasets/Objects365v1.yaml")
+    # sam2=Sample().load_from_yolo_txt(im_file="/root/ultra_louis_work/datasets/Objects365v1_5000/images/train/obj365_train_000000000003.jpg", txt_path="../runs/visual_yolo_txt/obj365_train_000000000003_saved.txt", yaml_file="/root/ultra_louis_work/datasets/Objects365v1.yaml")
 
-    output_path = Path(f"../runs/visual_yolo_txt1/visual_img.jpg")
-    saved_path = visualize_sample(sam2, output_path)
-
-
-    print(f"Saved visualization to {saved_path}")
+    # output_path = Path(f"../runs/visual_yolo_txt1/visual_img.jpg")
+    # saved_path = visualize_sample(sam2, output_path)
 
 
+    # print(f"Saved visualization to {saved_path}")
+
+
+
+    sam=Sample().load_from_json("/root/ultra_louis_work/runs/objv1_engine_buffer/3merge_prediction/obj365_train_000000000002.json")
+    
+    output_path = Path(f"../runs/visual_json_detection/visual_img.jpg")
+    saved_path = visualize_sample(sam, output_path)

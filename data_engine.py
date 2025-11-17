@@ -99,6 +99,23 @@ class DataEngine:
     def __init__(self,device="cuda"):
         self.device=device
 
+
+    def load_yolo26_objv1(self,model_path="./yolo26x-objv1.pt"):
+        """
+        Load YOLOE-26 model for object detection, the model is pretrained on Object365v1 dataset.
+        """
+        from ultralytics import YOLO
+
+        if hasattr(self,'model'):
+            # clear the existing model
+            del self.model
+
+            torch.cuda.empty_cache()
+            
+
+        self.model=YOLO(model_path).to(self.device)
+        print("load model from:", model_path)
+
     def load_yoloe(self):
         from ultralytics import YOLOE
 

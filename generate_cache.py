@@ -67,6 +67,8 @@ class GroundingDatasetJsonFolder(GroundingDataset):
         json_folders = {}
         json_folders["final_flickr_separateGT_train_segm.json"] = "/root/ultra_louis_work/runs/flickr_engine_buffer/3merge_prediction"
         json_folders["final_mixed_train_no_coco_segm.json"] = "/root/ultra_louis_work/runs/mixed_engine_buffer/3merge_prediction"
+        json_folders["objects365_train_segm.json"] = "/root/ultra_louis_work/runs/objv1_engine_buffer/3merge_prediction"
+
         json_folder = json_folders[os.path.basename(self.json_file)]
 
         json_files = list(Path(json_folder).glob("*.json"))
@@ -92,7 +94,12 @@ if __name__ == "__main__":
     #                                      img_path="../datasets/flickr/full_images/",
     # )
 
+    # dataset = GroundingDatasetJsonFolder(task="detect",
+    #                                      json_file="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
+    #                                      img_path="../datasets/mixed_grounding/gqa/images",
+    # )
+
     dataset = GroundingDatasetJsonFolder(task="detect",
-                                         json_file="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
-                                         img_path="../datasets/mixed_grounding/gqa/images",
+                                         json_file="../datasets/Objects365v1/annotations/objects365_train_segm.json",
+                                         img_path="../datasets/Objects365v1/images/train",
     )

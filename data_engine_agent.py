@@ -132,6 +132,7 @@ def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
 
 
 
+
 def worker_wrapper(args):
     return _load_grounding_data(*args)
 
@@ -142,7 +143,45 @@ def init_worker(images_data, imname_anns_data):
     IMAGES_CACHE = images_data
     IMNAME_ANNS_CACHE = imname_anns_data
 
+
+########################################################################################################
+def _load_detection_data(buffer_dir,im_dir,txt_file, folder_name,yaml_file):
+    dst_dir = os.path.join(buffer_dir, folder_name)
+    os.makedirs(dst_dir, exist_ok=True)
+    file_name= os.path.basename(txt_file)
+    file_name_wo_ext= os.path.splitext(file_name)[0]
+    dst_file = os.path.join(dst_dir, file_name_wo_ext + ".json")
+    if os.path.exists(dst_file):
+        return True
+    from yoloe_data_engine.engine_base import Sample, YoloBox
+
+    try:
+        sample = Sample()
+        im_name = file_name_wo_ext + ".jpg"
+        im_file = os.path.join(im_dir, im_name)
+        sample.im_file = im_file
+
+        sample.load_from_yolo_txt(im_file=im_file, txt_path=txt_file, yaml_file=yaml_file)
+
+        sample.save_to_json(dst_file)
+
+    except Exception as e:
+        print(f"[detection][WARN] could not open image '{im_file}': {e}")
+        return False
+    
+
+def txt2json_worker(args):
+    return _load_detection_data(*args)
+
+
+
+
+
+
 ################################## multi-processing model prediction ############################################
+
+
+
 
 def _batch_model_predict_single_process(self,buffer_dir, im_files, **kwargs):
     """
@@ -177,7 +216,7 @@ def _batch_model_predict_single_process(self,buffer_dir, im_files, **kwargs):
 
 
 
-def _device_predict_worker(args):
+def _device_yoloe_predict_worker(args):
     """
     Worker function for multi-process model prediction on a specific device.
     args: tuple containing (device, buffer_dir, batches, kwargs)
@@ -194,6 +233,25 @@ def _device_predict_worker(args):
     for im_files in tqdm(batches, desc=f"Device {device} processing batches"):
         _batch_model_predict_single_process(engine, buffer_dir, im_files, **worker_kwargs)
     return True
+
+def _device_yolo26_predict_worker(args):
+    """
+    Worker function for multi-process model prediction on a specific device.
+    args: tuple containing (device, buffer_dir, batches, kwargs)
+    """
+    device, buffer_dir, batches, kwargs = args
+
+    worker_kwargs = dict(kwargs or {})
+    texts = worker_kwargs.pop("texts", None)
+
+    engine = DataEngine(device=device)
+    engine.load_yolo26_objv1()
+
+    for im_files in tqdm(batches, desc=f"Device {device} processing batches"):
+        _batch_model_predict_single_process(engine, buffer_dir, im_files, **worker_kwargs)
+    return True
+
+
 ##############################################################################
 
 
@@ -219,7 +277,7 @@ def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json
         return True
 
     ground_sample = Sample()
-    ground_sample.load_from_grounding_label(sample_json)
+    ground_sample.load_from_json(sample_json)
 
     predict_sample = Sample()
     predict_sample.load_from_json(model_predict_json)
@@ -303,7 +361,22 @@ class DataEngineAgent:
 
 
     
-    def multi_process_batch_model_predict(self, im_dir, texts=None, conf=0.5, iou=0.4, batch_size=3, max_workers=None):
+    def multi_process_batch_model_predict(self, im_dir, texts=None, conf=0.5, iou=0.4, batch_size=3, max_workers=None,
+                                          type="grounding"):
+        
+        """
+        
+        """
+        assert type in ["grounding", "detection"], "type must be grounding or detection"
+        if type=="grounding":
+            assert texts is not None, "texts must be provided for grounding"
+            _predict_worker=_device_yoloe_predict_worker
+        if type=="detection":
+            texts = None  # ignore texts for detection
+            _predict_worker=_device_yolo26_predict_worker
+        print("Start multi-process batch model prediction...")
+
+
         im_files = []
         for file_name in os.listdir(im_dir):
             if file_name.endswith((".jpg", ".jpeg", ".png", ".bmp")):
@@ -342,7 +415,7 @@ class DataEngineAgent:
         results = []
         ctx = mp.get_context("spawn")
         with ProcessPoolExecutor(max_workers=len(process_args), mp_context=ctx) as executor:
-            futures = [executor.submit(_device_predict_worker, args) for args in process_args]
+            futures = [executor.submit(_predict_worker, args) for args in process_args]
             for future in tqdm(as_completed(futures), total=len(futures), desc="Model predict ..."):
                 future.result()
         return results
@@ -350,6 +423,54 @@ class DataEngineAgent:
 
 
         # print(f"Saved sample to {dst_file}")
+
+
+    def multi_process_load_detection_data(self, im_dir, txt_dir,yaml_file, max_workers=8):
+        """
+        Multi-process load detection data from txt files.
+        Args:
+            im_dir: str, image directory
+            txt_dir: str, txt annotation directory
+            yaml_file: str, yaml file for class names
+            max_workers: int, maximum number of worker processes
+
+        """
+
+
+        print("Start multi-process loading of detection data...")
+        
+        self.im_dir = im_dir
+
+        txt_files = []
+        for file_name in os.listdir(txt_dir):
+            if file_name.endswith(".txt"):
+                txt_files.append(os.path.join(txt_dir, file_name))
+        
+        # txt_files=txt_files[:128]
+        print(f"Total txt files to process: {len(txt_files)}")
+        folder_name = "1detection_data"
+        worker_count = max_workers if max_workers is not None else (os.cpu_count() or 1)
+        process_args = []
+        for txt_file in txt_files:
+            process_args.append((self.buffer_dir, self.im_dir, txt_file, folder_name,yaml_file))
+        print(f"Using worker_count={worker_count}")
+        # Use 'spawn' to avoid fork-related issues and set a chunksize for throughput
+        ctx = mp.get_context("spawn")
+        chunksize = max(1, min(500, len(process_args) // (worker_count * 4) if worker_count > 0 else 1))
+        print(f"Submitting {len(process_args)} tasks with chunksize={chunksize}")
+        with ProcessPoolExecutor(max_workers=worker_count, mp_context=ctx) as executor:
+            iterable = executor.map(txt2json_worker, process_args, chunksize=chunksize)
+            ok = 0
+            total = 0
+            for result in tqdm(iterable, total=len(process_args), desc="Loading detection data"):
+                total += 1
+                if result:
+                    ok += 1
+                if total % 10000 == 0:
+                    print(f"Progress: {ok}/{total} succeeded")
+        print(f"Done: {ok}/{total} succeeded")
+
+
 
 
 
@@ -396,11 +517,12 @@ class DataEngineAgent:
 
         print("Finished loading grounding data.")
 
+
     def multi_process_merge_prediction(self,json_dir,predict_json_dir,max_workers=8):
         
         json_files= []
         predict_json_files = []
-        for sample_file_name in os.listdir(json_dir):
+        for index, sample_file_name in enumerate(os.listdir(json_dir)):
             if sample_file_name.endswith(".json"):
                 json_path= os.path.join(json_dir, sample_file_name)
                 json_files.append(json_path)
@@ -487,7 +609,7 @@ if __name__ == "__main__":
     # mobileclip_text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
 
 
-    DATA="mixed_grounding"  # "mixed_grounding"
+    DATA="objv1"  # "mixed_grounding" #objv1
 
     if DATA=="flickr":
 
@@ -527,6 +649,22 @@ if __name__ == "__main__":
                                             max_workers=8)
 
     # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
+
+    elif DATA=="objv1":
+        agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/objv1_engine_buffer")
+        im_dir="../datasets/Objects365v1/images/train"
+        txt_dir="../datasets/Objects365v1/labels/train"
+        yaml_file="../datasets/Objects365v1.yaml"
+
+
+        # agent.multi_process_load_detection_data(im_dir=im_dir, txt_dir=txt_dir, yaml_file=yaml_file, max_workers=8)
+
+        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=None, conf=0.1, iou=0.4,batch_size=8,type="detection")
+
+        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/objv1_engine_buffer/1detection_data",
+                                            predict_json_dir="/root/ultra_louis_work/runs/objv1_engine_buffer/2model_predict",
+                                            max_workers=8)
+
 
 
 
