@@ -18,7 +18,6 @@ import multiprocessing as mp
 from yoloe_data_engine.data_engine import DataEngine
 
 import copy
-import numpy as np
 from pathlib import Path as _Path
 
 IMAGES_CACHE = None
@@ -336,7 +335,7 @@ def merge_prediction_worker(args):
 
 
 class DataEngineAgent:
-    def __init__(self, devices=["cuda:0"], buffer_dir="/root/ultra_louis_work/engine_buffer"):
+    def __init__(self, devices=["cuda:0"], buffer_dir="../engine_buffer"):
         self.buffer_dir = buffer_dir
         os.makedirs(self.buffer_dir, exist_ok=True)
         self.devices = devices
@@ -594,19 +593,39 @@ def read_numpy_and_print(path=None):
         cache = np.load(str(path), allow_pickle=True).item()
         gc.enable()
         return cache
-    path = "/root/ultra_louis_work/engine_buffer/grounding_data/5.cache"
+    path = "../engine_buffer/grounding_data/5.cache"
     data = load_dataset_cache_file(path)
     print(data)
+
+def read_ram_tag_list():
+    txt_path="../buffer/ram_tag_list.txt"
+    with open(txt_path, "r") as f:
+        lines = f.readlines()
+    lines = [line.strip() for line in lines]
+    print(lines[:10])
+    return lines
+def read_flickr_texts(num=50000):
+    mobileclip_text_embed_pt = "../datasets/flickr/text_embeddings_mobileclip_blt.pt"
+    import torch
+    txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
+    if num < len(txt_map):
+        return list(txt_map.keys())[:num]
+    else:
+        return list(txt_map.keys())
+
 
 if __name__ == "__main__":
 
 
-    devices = ["cuda:0","cuda:1","cuda:2","cuda:3"]
+    num_divide = 8
+    devices=[ "cuda:{}".format(i) for i in range(num_divide)]
+    # devices = ["cuda:0","cuda:1","cuda:2","cuda:3"]
 
-    # agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/flickr_engine_buffer")
-    # json_file = "/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.json"
+    # agent = DataEngineAgent(devices=devices, buffer_dir="../buffer/flickr_engine_buffer")
+    # json_file = "../datasets/flickr/annotations/final_flickr_separateGT_train_segm.json"pip 
     # im_dir = "../datasets/flickr/full_images/"
-    # mobileclip_text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
+    # mobileclip_text_embed_pt="../datasets/flickr/text_embeddings_mobileclip_blt.pt"
+
 
 
     DATA="objv1"  # "mixed_grounding" #objv1
@@ -614,28 +633,28 @@ if __name__ == "__main__":
     if DATA=="flickr":
 
 
-        agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/flickr_engine_buffer")
-        json_file = "/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.json"
+        agent = DataEngineAgent(devices=devices, buffer_dir="../buffer/flickr_engine_buffer")
+        json_file = "../datasets/flickr/annotations/final_flickr_separateGT_train_segm.json"
         im_dir = "../datasets/flickr/full_images/"
-        # mobileclip_text_embed_pt = "/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
-        mobileclip_text_embed_pt=r"/root/ultra_louis_work/datasets/mixed_grounding/gqa/text_embeddings_mobileclip_blt.pt"
+        # mobileclip_text_embed_pt = "../datasets/flickr/text_embeddings_mobileclip_blt.pt"
+        mobileclip_text_embed_pt=r"../datasets/mixed_grounding/gqa/text_embeddings_mobileclip_blt.pt"
     
         import torch
         txt_map = torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
         name_list = list   (txt_map.keys())[:50000]
         # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4, batch_size=2)
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/1grounding_data_merged",
-                                            predict_json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/2model_predict",
+        agent.multi_process_merge_prediction(json_dir="../buffer/flickr_engine_buffer/1grounding_data_merged",
+                                            predict_json_dir="../buffer/flickr_engine_buffer/2model_predict",
                                             max_workers=8)
 
     elif DATA=="mixed_grounding":
 
 
-        agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/mixed_engine_buffer")
+        agent = DataEngineAgent(devices=devices, buffer_dir="../buffer/mixed_engine_buffer")
         json_file= "../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json"
         im_dir="../datasets/mixed_grounding/gqa/images"
-        mobileclip_text_embed_pt = "/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
+        mobileclip_text_embed_pt = "../datasets/flickr/text_embeddings_mobileclip_blt.pt"
     
         # import torch
         # txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
@@ -644,25 +663,27 @@ if __name__ == "__main__":
 
 
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/1grounding_data_merged",
-                                            predict_json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/2model_predict",
+        agent.multi_process_merge_prediction(json_dir="../buffer/mixed_engine_buffer/1grounding_data_merged",
+                                            predict_json_dir="../buffer/mixed_engine_buffer/2model_predict",
                                             max_workers=8)
 
     # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
 
     elif DATA=="objv1":
-        agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/objv1_engine_buffer")
+        agent = DataEngineAgent(devices=devices, buffer_dir="../buffer/objv1_engine_buffer")
         im_dir="../datasets/Objects365v1/images/train"
         txt_dir="../datasets/Objects365v1/labels/train"
         yaml_file="../datasets/Objects365v1.yaml"
 
 
         # agent.multi_process_load_detection_data(im_dir=im_dir, txt_dir=txt_dir, yaml_file=yaml_file, max_workers=8)
+        texts = read_ram_tag_list()
+        # texts = read_flickr_texts(num=50000)
 
-        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=None, conf=0.1, iou=0.4,batch_size=8,type="detection")
+        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=texts, conf=0.1, iou=0.4,batch_size=128,type="grounding")
 
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/objv1_engine_buffer/1detection_data",
-                                            predict_json_dir="/root/ultra_louis_work/runs/objv1_engine_buffer/2model_predict",
+        agent.multi_process_merge_prediction(json_dir="../buffer/objv1_engine_buffer/1detection_data",
+                                            predict_json_dir="../buffer/objv1_engine_buffer/2model_predict",
                                             max_workers=8)
 
 

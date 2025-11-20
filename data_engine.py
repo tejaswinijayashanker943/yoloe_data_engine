@@ -119,7 +119,7 @@ class DataEngine:
     def load_yoloe(self):
         from ultralytics import YOLOE
 
-        model_path="/root/ultra_louis_work/ultralytics/yoloe-11l-seg.pt"
+        model_path="../ultralytics/yoloe-11l-seg.pt"
         yaml_file="yoloe-11l-seg.yaml"
         if hasattr(self,'model'):
             # clear the existing model
@@ -558,8 +558,8 @@ if __name__=="__main__":
 
     if DATA_NAME=="Objects365v1":
         de=DataEngine(device="cuda")
-        yaml_config="/root/ultra_louis_work/datasets/Objects365v1.yaml"
-        cache_path="/root/ultra_louis_work/datasets/Objects365v1/labels/train.cache"
+        yaml_config="../datasets/Objects365v1.yaml"
+        cache_path="../datasets/Objects365v1/labels/train.cache"
         de.load_cached_label(cache_path=cache_path, data_style="detection", yaml_config=yaml_config)
         de.load_yoloe()
         de.set_classes(yaml_config=yaml_config) # set classes for the dataset
@@ -576,8 +576,8 @@ if __name__=="__main__":
         # set gpu 3 
         device="cuda:1"
         de=DataEngine(device=device)
-        cache_path="/root/ultra_louis_work/datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.merged.cache"
-        text_embed_pt="/root/ultra_louis_work/datasets/mixed_grounding/gqa/text_embeddings_mobileclip_blt.pt"
+        cache_path="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.merged.cache"
+        text_embed_pt="../datasets/mixed_grounding/gqa/text_embeddings_mobileclip_blt.pt"
         de.load_cached_label(cache_path=cache_path, 
                             data_style="grounding", 
                             text_embed_pt=text_embed_pt)
@@ -619,8 +619,8 @@ if __name__=="__main__":
         # set gpu 2
         device="cuda:2"
         de=DataEngine(device=device)
-        cache_path="/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.merged.cache"
-        text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
+        cache_path="../datasets/flickr/annotations/final_flickr_separateGT_train_segm.merged.cache"
+        text_embed_pt="../datasets/flickr/text_embeddings_mobileclip_blt.pt"
         de.load_cached_label(cache_path=cache_path, 
                             data_style="grounding", 
                             text_embed_pt=text_embed_pt)

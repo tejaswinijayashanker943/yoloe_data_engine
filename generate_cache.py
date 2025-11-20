@@ -65,16 +65,16 @@ class GroundingDatasetJsonFolder(GroundingDataset):
         x = {"labels": []}
         LOGGER.info("Loading annotation file...")
         json_folders = {}
-        json_folders["final_flickr_separateGT_train_segm.json"] = "/root/ultra_louis_work/runs/flickr_engine_buffer/3merge_prediction"
-        json_folders["final_mixed_train_no_coco_segm.json"] = "/root/ultra_louis_work/runs/mixed_engine_buffer/3merge_prediction"
-        json_folders["objects365_train_segm.json"] = "/root/ultra_louis_work/runs/objv1_engine_buffer/3merge_prediction"
+        json_folders["final_flickr_separateGT_train_segm.json"] = "../buffer/flickr_engine_buffer/3merge_prediction"
+        json_folders["final_mixed_train_no_coco_segm.json"] = "../buffer/mixed_engine_buffer/3merge_prediction"
+        json_folders["objects365_train_segm.json"] = "../buffer/objv1_engine_buffer/3merge_prediction"
 
         json_folder = json_folders[os.path.basename(self.json_file)]
 
         json_files = list(Path(json_folder).glob("*.json"))
         print(f"Found {len(json_files)} json files in folder {json_folder}")   
         for json_file in TQDM(json_files, desc=f"Reading annotations from folder {json_folder}"):
-            sam = Sample().load_from_json(json_file)
+            sam = Sample().load_from_json(json_file) 
 
             label=sam.to_grounding_label()
             x["labels"].append(label)
