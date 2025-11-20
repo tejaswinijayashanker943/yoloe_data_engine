@@ -8,13 +8,12 @@ print("set workspace:", workspace)
 
 from ultralytics.data.utils import load_dataset_cache_file
 
-cache_path="/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.cache"
-cache_path="/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.engine.cache"
 
 
 def check_cache_func(cache_path):
     cache_data=load_dataset_cache_file(cache_path)
-    # print("cache_data:", cache_data)
+    # print("cache_data:", cache_data)s
+    print("cache_path:", cache_path)
     print("cache_data keys:", cache_data.keys())
  
 
@@ -22,8 +21,10 @@ def check_cache_func(cache_path):
     if labels is not None:
         print("labels len:", len(labels))
 
-    print("First 5 labels:")
-    for i in range(5):
+    num=0
+    if num <1: return 
+    print(f"First {num} labels:")
+    for i in range(num):
         print("-"*100)
         print(f"Label {i}:")
         for key, val in cache_data['labels'][i].items():
@@ -38,5 +39,18 @@ def check_cache_func(cache_path):
             print(f"Error: In label {i}, min cls value {min(cls_list)} < 0")
 
 
+cache_path="../datasets/flickr/annotations/final_flickr_separateGT_train_segm.cache"
 
+
+cache_path=check_cache_func(cache_path)
+
+cache_path="../datasets/flickr/annotations/final_flickr_separateGT_train_segm.engine.cache"
+cache_path=check_cache_func(cache_path)
+
+
+
+cache_path="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.cache"
+cache_path=check_cache_func(cache_path)
+
+cache_path="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.engine.cache"
 cache_path=check_cache_func(cache_path)
