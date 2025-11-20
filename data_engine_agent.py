@@ -659,7 +659,7 @@ if __name__ == "__main__":
         import torch
         txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
         name_list=list(txt_map.keys())[:50000]
-        agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4,batch_size=32)
+        agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4,batch_size=16)
 
 
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
