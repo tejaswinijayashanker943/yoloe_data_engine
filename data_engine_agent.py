@@ -617,7 +617,7 @@ def read_flickr_texts(num=50000):
 if __name__ == "__main__":
 
 
-    num_divide = 8
+    num_divide = 6
     devices=[ "cuda:{}".format(i) for i in range(num_divide)]
     # devices = ["cuda:0","cuda:1","cuda:2","cuda:3"]
 
@@ -628,7 +628,7 @@ if __name__ == "__main__":
 
 
 
-    DATA="objv1"  # "mixed_grounding" #objv1
+    DATA="mixed_grounding"  # "mixed_grounding" #objv1
 
     if DATA=="flickr":
 
@@ -656,16 +656,16 @@ if __name__ == "__main__":
         im_dir="../datasets/mixed_grounding/gqa/images"
         mobileclip_text_embed_pt = "../datasets/flickr/text_embeddings_mobileclip_blt.pt"
     
-        # import torch
-        # txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
-        # name_list=list(txt_map.keys())[:50000]
-        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4,batch_size=2)
+        import torch
+        txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
+        name_list=list(txt_map.keys())[:50000]
+        agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4,batch_size=2)
 
 
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="../buffer/mixed_engine_buffer/1grounding_data_merged",
-                                            predict_json_dir="../buffer/mixed_engine_buffer/2model_predict",
-                                            max_workers=8)
+        # agent.multi_process_merge_prediction(json_dir="../buffer/mixed_engine_buffer/1grounding_data_merged",
+        #                                     predict_json_dir="../buffer/mixed_engine_buffer/2model_predict",
+        #                                     max_workers=8)
 
     # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
 
