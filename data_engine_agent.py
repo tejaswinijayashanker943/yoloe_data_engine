@@ -277,11 +277,18 @@ def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json
 
     ground_sample = Sample()
     ground_sample.load_from_json(sample_json)
+    origin_num=len(ground_sample.instances)
+    # print(f"{ground_sample.im_file} ground_sample instances:", len(ground_sample.instances))
+
 
     predict_sample = Sample()
     predict_sample.load_from_json(model_predict_json)
+    # print(f"{predict_sample.im_file} predict_sample instances:", len(predict_sample.instances))
 
     for model_inst in predict_sample.instances:
+
+        if model_inst.conf[0] <0.5:
+            continue
         # Defensive: skip invalid model instances
         if getattr(model_inst, 'bbox', None) is None:
             print(f"[merge][WARN] skipping model instance with empty bbox in '{sample_json}'")
@@ -302,6 +309,7 @@ def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json
             ground_sample.instances.append(model_inst)
 
     ground_sample.save_to_json(dst_file)
+    # print(f"{ground_sample.im_file} merged instances:", len(ground_sample.instances), " (added ", len(ground_sample.instances)-origin_num,")")
     # print(f"[merge] Saved: {dst_file}")
     return True
     # print(f"Merged label saved to {dst_file}")
@@ -491,7 +499,7 @@ class DataEngineAgent:
             folder_name = "1grounding_data_merged"
         else:
             imname_anns_data = None
-            folder_name = "grounding_data"
+            folder_name = "1grounding_data_merged"
         imid_anns = defaultdict(list)
         for ann in annotations["annotations"]:
             ann["caption"] = images_data[f"{ann['image_id']:d}"]["caption"]
@@ -522,6 +530,7 @@ class DataEngineAgent:
         json_files= []
         predict_json_files = []
         for index, sample_file_name in enumerate(os.listdir(json_dir)):
+
             if sample_file_name.endswith(".json"):
                 json_path= os.path.join(json_dir, sample_file_name)
                 json_files.append(json_path)
@@ -551,6 +560,7 @@ class DataEngineAgent:
         worker_count = max_workers if max_workers is not None else (os.cpu_count() or 1)
         print(f"[merge] Using worker_count={worker_count}")
 
+      
         process_args = []
         for i in range(len(json_files)):
             # include index for debug prints inside workers
@@ -617,7 +627,7 @@ def read_flickr_texts(num=50000):
 if __name__ == "__main__":
 
 
-    num_divide = 6
+    num_divide = 8
     devices=[ "cuda:{}".format(i) for i in range(num_divide)]
     # devices = ["cuda:0","cuda:1","cuda:2","cuda:3"]
 
@@ -656,18 +666,19 @@ if __name__ == "__main__":
         im_dir="../datasets/mixed_grounding/gqa/images"
         mobileclip_text_embed_pt = "../datasets/flickr/text_embeddings_mobileclip_blt.pt"
     
-        import torch
-        txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
-        name_list=list(txt_map.keys())[:50000]
-        agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4,batch_size=8)
+        # import torch
+        # txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
+        # name_list=list(txt_map.keys())[:50000] 
+        texts = read_ram_tag_list()
+        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=texts, conf=0.5, iou=0.4,batch_size=8)
 
 
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        # agent.multi_process_merge_prediction(json_dir="../buffer/mixed_engine_buffer/1grounding_data_merged",
-        #                                     predict_json_dir="../buffer/mixed_engine_buffer/2model_predict",
-        #                                     max_workers=8)
+        agent.multi_process_merge_prediction(json_dir="../buffer/mixed_engine_buffer/1grounding_data_merged",
+                                            predict_json_dir="../buffer/mixed_engine_buffer/2model_predict",
+                                            max_workers=32)
 
-    # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
+        # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=False, max_workers=8)
 
     elif DATA=="objv1":
         agent = DataEngineAgent(devices=devices, buffer_dir="../buffer/objv1_engine_buffer")
@@ -680,7 +691,7 @@ if __name__ == "__main__":
         texts = read_ram_tag_list()
         # texts = read_flickr_texts(num=50000)
 
-        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=texts, conf=0.1, iou=0.4,batch_size=128,type="grounding")
+        # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=texts, conf=0.1, iou=0.4,batch_size=64,type="grounding")
 
         agent.multi_process_merge_prediction(json_dir="../buffer/objv1_engine_buffer/1detection_data",
                                             predict_json_dir="../buffer/objv1_engine_buffer/2model_predict",

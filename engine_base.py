@@ -477,10 +477,30 @@ class Sample:
             json.dump(self.to_dict(), f, indent=4)
         # print(f"Saved sample to {json_path}")
 
-    def load_from_json(self,json_path):
+
+    def gauss_json_style(self,json_data: dict):
+        if all (key in json_data.keys() for key in ["im_file", "instances"]):
+            return "default"
+        elif all (key in json_data.keys() for key in ["texts", "bboxes", "cls"]):
+            return "grounding"
+        else:
+            return "unknown"
+
+    def load_from_json(self,json_path,sytle="default"):
         import json
         with open(json_path, 'r') as f:
             data = json.load(f)
+            style= self.gauss_json_style(data)
+
+            if style=="grounding":
+                # raise Exception("Please use load_from_grounding_label to load grounding style json.")
+                return self.load_from_grounding_label(data)
+            elif style=="default":
+                return self._load_from_dict(data)
+            else:
+                raise Exception("Unknown json style.")
+
+    def _load_from_dict(self, data: dict):
         self.im_file = data.get('im_file')
         self.shape= data.get('shape',None)
         self.instances = []
@@ -631,8 +651,19 @@ if __name__ == "__main__":
     # print(f"Saved visualization to {saved_path}")
 
 
+    json_dir="../buffer/objv1_engine_buffer/3merge_prediction"
 
-    sam=Sample().load_from_json("/root/ultra_louis_work/runs/objv1_engine_buffer/3merge_prediction/obj365_train_000000000002.json")
+    if not os.path.exists(json_dir):
+        print(f"{json_dir} not exists")
+        exit(0)
+
+    index=7
+    json_name=os.listdir(json_dir)[index]
     
-    output_path = Path(f"../runs/visual_json_detection/visual_img.jpg")
+    json_path=os.path.join(json_dir, json_name)
+    
+
+    sam=Sample().load_from_json(json_path)
+    
+    output_path = Path(f"../runs/visual_json_detection_{index}/visual_img.jpg")
     saved_path = visualize_sample(sam, output_path)

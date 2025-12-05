@@ -94,12 +94,12 @@ if __name__ == "__main__":
     #                                      img_path="../datasets/flickr/full_images/",
     # )
 
-    # dataset = GroundingDatasetJsonFolder(task="detect",
-    #                                      json_file="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
-    #                                      img_path="../datasets/mixed_grounding/gqa/images",
-    # )
-
     dataset = GroundingDatasetJsonFolder(task="detect",
-                                         json_file="../datasets/Objects365v1/annotations/objects365_train_segm.json",
-                                         img_path="../datasets/Objects365v1/images/train",
+                                         json_file="../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json",
+                                         img_path="../datasets/mixed_grounding/gqa/images",
     )
+
+    # dataset = GroundingDatasetJsonFolder(task="detect",
+    #                                      json_file="../datasets/Objects365v1/annotations/objects365_train_segm.json",
+    #                                      img_path="../datasets/Objects365v1/images/train",
+    # )
