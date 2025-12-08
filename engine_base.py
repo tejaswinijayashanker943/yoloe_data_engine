@@ -6,9 +6,24 @@ os.chdir(workspace)
 print("set workspace:", workspace)
 
 
+
+def CHECK_SEGMENT(segment):
+    # Allow None segments (e.g., when loading data before mask generation)
+    if segment is None:
+        return True
+    
+    try:
+        seg_arr = np.array(segment, dtype=np.float32)
+        if seg_arr.ndim != 2 or seg_arr.shape[1] != 2:
+            return False
+    except Exception:
+        return False
+
+
 import os
 from pathlib import Path
 import numpy as np
+import cv2
 
 from pathlib import Path as _Path
 def to_serializable(obj):
@@ -141,7 +156,7 @@ class Instance:
 
     def set_segment(self, segment: np.ndarray):
         self.segment = segment
-        assert len(segment.shape) == 2 and segment.shape[1] == 2
+        CHECK_SEGMENT(segment)
 
     def set_embed(self, embed):
         self.embed = embed
@@ -160,12 +175,15 @@ class Instance:
         return self.text[max_conf_index], self.conf[max_conf_index]
 
     def to_dict(self):
+        CHECK_SEGMENT(self.segment)
+
         return {
             'bbox': to_serializable(self.bbox),
             'text': to_serializable(self.text),
             'conf': to_serializable(self.conf),
             'embed': to_serializable(self.embed),
             'vpe': to_serializable(self.vpe),
+            "segment": to_serializable(self.segment),
             'other_data': to_serializable(self.other_data)
         }
     def from_dict(self, data: dict):
@@ -188,9 +206,13 @@ class Instance:
         self.text = data.get('text')
         self.conf = data.get('conf')
         self.embed = data.get('embed')
+        self.segment = data.get('segment')
         # backward compatibility: some files may use 'vp' key
         self.vpe = data.get('vpe', data.get('vp'))
         self.other_data = data.get('other_data', {})
+
+        CHECK_SEGMENT(self.segment)
+
 
 class Sample:
     def __init__(self):
@@ -557,6 +579,7 @@ def sample_to_results(sample: Sample, image_root: Path | str | None = None) -> L
 
     img_path = _resolve_image_path(sample, image_root=image_root)
     orig_img = np.array(Image.open(img_path).convert("RGB"))
+    img_h, img_w = orig_img.shape[:2]
 
     text_instances={}
     all_instances=[]
@@ -573,6 +596,7 @@ def sample_to_results(sample: Sample, image_root: Path | str | None = None) -> L
     for text, instances in text_instances.items():
 
         boxes_data: List[List[float]] = []
+        masks_list: List[np.ndarray] = []
         names: List[str] = []
         name_to_idx: Dict[str, int] = {}
 
@@ -598,15 +622,41 @@ def sample_to_results(sample: Sample, image_root: Path | str | None = None) -> L
                     conf_value,
                     cls_idx,
                 ])
+            
+            # Handle segmentation masks - convert polygon to binary mask
+            if inst.segment is not None:
+                seg_array = np.array(inst.segment, dtype=np.float32)
+                # Create binary mask from polygon
+                mask = np.zeros((img_h, img_w), dtype=np.uint8)
+                if seg_array.ndim == 2 and seg_array.shape[1] == 2 and len(seg_array) >= 3:
+                    # Convert to integer coordinates for cv2.drawContours
+                    poly_points = seg_array.astype(np.int32)
+                    cv2.drawContours(mask, [poly_points], 0, 1, -1)
+                    masks_list.append(mask.astype(bool))
+                else:
+                    # Invalid segment, append empty mask
+                    masks_list.append(np.zeros((img_h, img_w), dtype=bool))
+            else:
+                # No segment for this instance
+                masks_list.append(np.zeros((img_h, img_w), dtype=bool))
+        
         print(names)
         boxes_tensor = torch.from_numpy(np.array(boxes_data, dtype=np.float32)) if boxes_data else torch.zeros((0, 6), dtype=torch.float32)
         names_dict = {idx: name for idx, name in enumerate(names)}
+
+        # Convert masks to tensor if any exist
+        masks_tensor = None
+        if masks_list and any(m.any() for m in masks_list):
+            # Stack binary masks into a single tensor (N, H, W)
+            masks_array = np.stack(masks_list, axis=0)
+            masks_tensor = torch.from_numpy(masks_array)
 
         result = Results(
             orig_img=orig_img,
             path=str(img_path),
             names=names_dict,
             boxes=boxes_tensor,
+            masks=masks_tensor,
         )
         text_result[text]=result
     return text_result
@@ -651,7 +701,7 @@ if __name__ == "__main__":
     # print(f"Saved visualization to {saved_path}")
 
 
-    json_dir="../buffer/objv1_engine_buffer/3merge_prediction"
+    json_dir="../buffer/mixed_engine_buffer/4merge_prediction_with_masks"
 
     if not os.path.exists(json_dir):
         print(f"{json_dir} not exists")
