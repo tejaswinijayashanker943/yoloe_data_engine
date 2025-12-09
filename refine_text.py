@@ -1,40 +1,44 @@
-import ultralytics,os
+import os
+
+import ultralytics
+
 workspace = os.path.dirname(os.path.dirname(os.path.abspath(ultralytics.__file__)))
 os.chdir(workspace)
 print("set workspace:", workspace)
 
 
-from numpy import indices
-from pyparsing import annotations
-from data_engine import *
-
-from ultralytics.data.dataset import GroundingDataset, DATASET_CACHE_VERSION, save_dataset_cache_file, get_hash,CACHE_SUFFIX,segments2boxes
-from ultralytics.data.converter import merge_multi_segment
-from collections import defaultdict
-from ultralytics.utils import LOCAL_RANK, LOGGER, NUM_THREADS, TQDM, colorstr
-from typing import Any
 import json
+from collections import defaultdict
+from typing import Any
+
+from ultralytics.data.converter import merge_multi_segment
+from ultralytics.data.dataset import (
+    DATASET_CACHE_VERSION,
+    GroundingDataset,
+    get_hash,
+    save_dataset_cache_file,
+    segments2boxes,
+)
 from ultralytics.models import yolo
+from ultralytics.utils import LOGGER, TQDM
+
+from data_engine import *
 
 
 class RefineGroundingDataset(GroundingDataset, DataEngine):
+    def vpe_text(self, source, visual_prompts, texts):
+        """Cal the visual prompt embedding for the current image and visual prompts.
 
-
-
-    def vpe_text(self, source, visual_prompts ,texts):
-        """
-        cal the visual prompt embedding for the current image and visual prompts.
         Args:
             source: image source
             visual_prompts: dict, containing "bboxes" and "cls" lists
             texts: list of str, the texts to be matched
+
         Returns:
-            matched texts for each box: tensor, (N,)
+            matched texts for each box: tensor, (N,).
         """
-
-
-        yoloe_model= self.model
-        predictor=yolo.yoloe.YOLOEVPDetectPredictor
+        yoloe_model = self.model
+        predictor = yolo.yoloe.YOLOEVPDetectPredictor
         if type(yoloe_model.predictor) is not predictor:
             yoloe_model.predictor = predictor(
                 overrides={
@@ -46,12 +50,10 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
                 _callbacks=yoloe_model.callbacks,
             )
         # self.task = "segment" if isinstance(self.predictor, yolo.segment.SegmentationPredictor) else "detect"
-            
 
-                # get the vpe from current image and visual prompts
-        prompts={"bboxes": visual_prompts["bboxes"],
-                    "cls":list( range( len(visual_prompts["cls"])))}
-        num_cls= len(set(prompts["cls"]))
+        # get the vpe from current image and visual prompts
+        prompts = {"bboxes": visual_prompts["bboxes"], "cls": list(range(len(visual_prompts["cls"])))}
+        num_cls = len(set(prompts["cls"]))
         yoloe_model.model.model[-1].nc = num_cls
         yoloe_model.model.model[-1].no = num_cls + yoloe_model.model.model[-1].reg_max * 4
         yoloe_model.model.names = [f"object{i}" for i in range(num_cls)]
@@ -59,24 +61,19 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
         yoloe_model.predictor.setup_model(model=yoloe_model.model)
         vpe = yoloe_model.predictor.get_vpe(source).squeeze(0)
 
-        tpe= yoloe_model.get_text_pe(texts).squeeze(0)
+        tpe = yoloe_model.get_text_pe(texts).squeeze(0)
 
         # normalize
-        vpe= torch.nn.functional.normalize(vpe,dim=-1,p=2)
-        tpe= torch.nn.functional.normalize(tpe,dim=-1,p=2)
+        vpe = torch.nn.functional.normalize(vpe, dim=-1, p=2)
+        tpe = torch.nn.functional.normalize(tpe, dim=-1, p=2)
         # cal the similarity and return the text for each box
         similarities = (vpe @ tpe.T).softmax(dim=-1)  # (N, M)
         matched_indices = similarities.argmax(dim=-1)  # (N,)
         matched_texts = [texts[i] for i in matched_indices.tolist()]
         return matched_texts
 
-
-
-    
-
     def cache_labels(self, path: Path = Path("./labels.cache")) -> dict[str, Any]:
-        """
-        Load annotations from a JSON file, filter, and normalize bounding boxes for each image.
+        """Load annotations from a JSON file, filter, and normalize bounding boxes for each image.
 
         Args:
             path (Path): Path where to save the cache file.
@@ -89,7 +86,6 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
         with open(self.json_file) as f:
             annotations = json.load(f)
 
-
         # images = {f"{im['id']:d}": im for im in annotations["images"]}
 
         # Map image IDs to file names
@@ -101,9 +97,6 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
             imid = ann["image_id"]
             imname = imid_imname[f"{imid:d}"]
             imname_anns[imname].append(ann)
-        
-
-
 
         # # map sample id to the annotations
         # img_ids= [im["id"] for im in annotations["images"]]
@@ -116,13 +109,10 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
         for ann in annotations["annotations"]:
             imid_anns[ann["image_id"]].append(ann)
 
-
-        if not hasattr(self, 'model') or self.model is None:
+        if not hasattr(self, "model") or self.model is None:
             self.load_yoloe()
 
-
         for img_id, anns in TQDM(imid_anns.items(), desc=f"Reading annotations {self.json_file}"):
-
             # if img_id > 16*10: break  # for testing
             img = images[f"{img_id:d}"]
             h, w, f = img["height"], img["width"], img["file_name"]
@@ -130,18 +120,19 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
             if not im_file.exists():
                 continue
             self.im_files.append(str(im_file))
-            bboxes_xyxy=[]
+            bboxes_xyxy = []
             bboxes = []
             segments = []
             cat2id = {}
             texts = []
 
-
-            anns_for_img=imname_anns[f]
+            anns_for_img = imname_anns[f]
 
             for ann in anns + anns_for_img:
-
-                if len(bboxes_xyxy) > 0 and YoloBox([int(h),int(w)]).load_from_xyxy(bboxes_xyxy).iou(ann["bbox"]).max()>0.98:
+                if (
+                    len(bboxes_xyxy) > 0
+                    and YoloBox([int(h), int(w)]).load_from_xyxy(bboxes_xyxy).iou(ann["bbox"]).max() > 0.98
+                ):
                     # print("skip duplicate box")
                     continue
                 if ann["iscrowd"]:
@@ -162,7 +153,7 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
                     cat2id[cat_name] = len(cat2id)
                     texts.append([cat_name])
                 cls = cat2id[cat_name]  # class
-                box = [cls] + box.tolist()
+                box = [cls, *box.tolist()]
                 if box not in bboxes:
                     bboxes.append(box)
                     if ann.get("segmentation") is not None:
@@ -179,10 +170,9 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
                                 .reshape(-1)
                                 .tolist()
                             )
-                        s = [cls] + s
+                        s = [cls, *s]
                         segments.append(s)
-                bboxes_xyxy.append(ann["bbox"]) # add xyxy box for iou calculation
-
+                bboxes_xyxy.append(ann["bbox"])  # add xyxy box for iou calculation
 
             lb = np.array(bboxes, dtype=np.float32) if len(bboxes) else np.zeros((0, 5), dtype=np.float32)
 
@@ -192,32 +182,29 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
                 lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
             lb = np.array(lb, dtype=np.float32)
 
-            label=  {
-                    "im_file": im_file,
-                    "shape": (h, w),
-                    "cls": lb[:, 0:1],  # n, 1
-                    "bboxes": lb[:, 1:],  # n, 4
-                    "segments": segments,
-                    "normalized": True,
-                    "bbox_format": "xywh",
-                    "texts": texts,
-                }
+            label = {
+                "im_file": im_file,
+                "shape": (h, w),
+                "cls": lb[:, 0:1],  # n, 1
+                "bboxes": lb[:, 1:],  # n, 4
+                "segments": segments,
+                "normalized": True,
+                "bbox_format": "xywh",
+                "texts": texts,
+            }
 
             #
 
-
             x["labels"].append(label)
 
+        #######  append boxes
 
-        
-        #######  append boxes 
+        batch_size = 64
 
-        batch_size=64
-
-        self.data_style="grounding"
-        for start in tqdm(range(0,len(x["labels"]),batch_size)):
-            batch_indices=list(range(start,min(start+batch_size,len(x["labels"]))))
-            batch_texts=[]
+        self.data_style = "grounding"
+        for start in tqdm(range(0, len(x["labels"]), batch_size)):
+            batch_indices = list(range(start, min(start + batch_size, len(x["labels"]))))
+            batch_texts = []
             for indice in batch_indices:
                 label_texts = x["labels"][indice].get("texts", [])
                 if isinstance(label_texts, list):
@@ -233,66 +220,58 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
             else:
                 self.set_classes(name_list=None)
 
-            results=self.yoloe_predict_batch([ x["labels"][i] for i in batch_indices ], conf=0.1,iou=0.4)
-            assert len(results)==len(batch_indices), "Mismatch between results and batch_indices length"
-            for indice,res in zip(batch_indices,results):
-                iou=0.1 # append new boxes when iou < 0.1
-                replace=False # do not replace existing boxes
-                x["labels"][indice]= self._update_grounding_label(x["labels"][indice],res,iou=iou,replace=replace)
-        
-
+            results = self.yoloe_predict_batch([x["labels"][i] for i in batch_indices], conf=0.1, iou=0.4)
+            assert len(results) == len(batch_indices), "Mismatch between results and batch_indices length"
+            for indice, res in zip(batch_indices, results):
+                iou = 0.1  # append new boxes when iou < 0.1
+                replace = False  # do not replace existing boxes
+                x["labels"][indice] = self._update_grounding_label(x["labels"][indice], res, iou=iou, replace=replace)
 
         self.load_yoloe()  # reload to reset class number
 
         #####  refine the bbox texts
         imname_image = {im["file_name"]: im for im in annotations["images"]}
-        for indice,label in tqdm(enumerate(x["labels"]), desc="Refining texts for grounding data"):
-            bboxes_xyxy= YoloBox((int(label["shape"][0]),int(label["shape"][1]))).load_from_xywhn_normalized(label["bboxes"]).xyxy
-            visual={"bboxes": bboxes_xyxy,
-                    "cls": list(range(bboxes_xyxy.shape[0]))}
-            texts= []
+        for indice, label in tqdm(enumerate(x["labels"]), desc="Refining texts for grounding data"):
+            bboxes_xyxy = (
+                YoloBox((int(label["shape"][0]), int(label["shape"][1])))
+                .load_from_xywhn_normalized(label["bboxes"])
+                .xyxy
+            )
+            visual = {"bboxes": bboxes_xyxy, "cls": list(range(bboxes_xyxy.shape[0]))}
+            texts = []
             for text_list in label["texts"]:
                 texts.extend(text_list)
-            print("original texts for image ",  ":", texts)
-            caption= imname_image[label["im_file"].name]["caption"].replace(".","")
-            caption_texts= caption.split()
+            print("original texts for image ", ":", texts)
+            caption = imname_image[label["im_file"].name]["caption"].replace(".", "")
+            caption_texts = caption.split()
             texts.extend(caption_texts)
-            print("caption_texts for image ",  ":", caption_texts)
-            texts= list(set(texts))
-            matched_texts= self.vpe_text(source= label["im_file"], visual_prompts= visual, texts= texts)
-            matches_texts_set= list(set(matched_texts))
-            label['texts']= [[text] for text in matches_texts_set]
+            print("caption_texts for image ", ":", caption_texts)
+            texts = list(set(texts))
+            matched_texts = self.vpe_text(source=label["im_file"], visual_prompts=visual, texts=texts)
+            matches_texts_set = list(set(matched_texts))
+            label["texts"] = [[text] for text in matches_texts_set]
             # take cls as the index in the matched texts set
-            label["cls"]= [   matches_texts_set.index(text) for text in matched_texts ]
+            label["cls"] = [matches_texts_set.index(text) for text in matched_texts]
 
-
-
-            print(label['cls'])
+            print(label["cls"])
             print(matched_texts)
-            print(label['texts'])
-            x["labels"][indice]= label
-
-
+            print(label["texts"])
+            x["labels"][indice] = label
 
         x["hash"] = get_hash(self.json_file)
 
-
         save_dataset_cache_file(self.prefix, path, x, DATASET_CACHE_VERSION)
         return x
-
-
-
-
 
 
 # """
 # refine the text for grounding data by running grounding prediction and updating the texts.
 # how to set classes:
 # 1. collect all texts in the current batch.
-# 2. do such refinement for each image in the batch: 
+# 2. do such refinement for each image in the batch:
 
 
-# # read from the json file as 
+# # read from the json file as
 
 # ["two people"] -> ["two", "people","two people"]
 # ["what"]. -> update according to the grounding prediction results.
@@ -301,12 +280,10 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
 # """
 
 
-
-
 # def load_src_json(self, json_path):
 
 #     """
-#     read the original json file for grounding dataset. 
+#     read the original json file for grounding dataset.
 
 #     """
 #     import json
@@ -333,18 +310,18 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
 #     print("number of annotations:", len(data["annotations"]))
 #     print("-"*40)
 #     print("example image entry:", data["images"][0])
-#     print("exmple category entry:")
+#     print("example category entry:")
 
 #     for i in range(4):
 #         print("-"*40)
-#         print( data["annotations"][i]) 
+#         print( data["annotations"][i])
 
 
-#     return 
+#     return
 #     json_data = {
 #         "file_names": [],
 #         "images": {},
-#         "annotations": {} 
+#         "annotations": {}
 #     }
 #     for x in data["images"]:
 #         file_name = x["file_name"]
@@ -355,7 +332,7 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
 #         print
 
 #     self.json_data = json_data
-    
+
 # def get_captions_texts(self,file_name):
 #     """
 #      get all captions and split them into texts
@@ -373,15 +350,14 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
 #     return captions, caption_texts
 
 
-
 # de=DataEngine()
 
 # load_src_json(de, "/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.json")
 
 # cache_path="/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.merged.cache"
 # text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
-# # de.load_cached_label(cache_path=cache_path, 
-# #                     data_style="grounding", 
+# # de.load_cached_label(cache_path=cache_path,
+# #                     data_style="grounding",
 # #                     text_embed_pt=text_embed_pt)
 
 # # de.load_yoloe()
@@ -392,32 +368,22 @@ class RefineGroundingDataset(GroundingDataset, DataEngine):
 # # def predict_and_update_text(self,indice):
 
 
+DATA_DIR = "../datasets/"
 
-from ultralytics import YOLOE
-from ultralytics.models.yolo.yoloe import YOLOEVPTrainer
-
-
-
-
-
-DATA_DIR="../datasets/"
-
-Objects365v1="../datasets/Objects365v1.yaml"
+Objects365v1 = "../datasets/Objects365v1.yaml"
 
 
 import argparse
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--img_path', type=str, default=DATA_DIR+"flickr/full_images/")
-parser.add_argument('--json_file', type=str, default=DATA_DIR+"flickr/annotations/final_flickr_separateGT_train_segm.json")
+parser.add_argument("--img_path", type=str, default=DATA_DIR + "flickr/full_images/")
+parser.add_argument(
+    "--json_file", type=str, default=DATA_DIR + "flickr/annotations/final_flickr_separateGT_train_segm.json"
+)
 args = parser.parse_args()
 
 
-
-data= RefineGroundingDataset(
-        img_path=args.img_path,
-        json_file=args.json_file,
-    )
-
-
-
-
+data = RefineGroundingDataset(
+    img_path=args.img_path,
+    json_file=args.json_file,
+)

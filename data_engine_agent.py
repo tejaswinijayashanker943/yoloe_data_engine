@@ -1,25 +1,26 @@
-from git import List
-from matplotlib.pylab import sample
-import ultralytics,os
+from __future__ import annotations
+
+import os
+
+import ultralytics
+
 workspace = os.path.dirname(os.path.dirname(os.path.abspath(ultralytics.__file__)))
 os.chdir(workspace)
 print("set workspace:", workspace)
 
 
-from collections import defaultdict
-import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from tqdm import tqdm
-import os
-import numpy as np
-from pathlib import Path
-from collections import defaultdict
-import multiprocessing as mp
-from yoloe_data_engine.data_engine import DataEngine
-
 import copy
-import numpy as np
+import json
+import multiprocessing as mp
+import os
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 from pathlib import Path as _Path
+
+import numpy as np
+from tqdm import tqdm
+from yoloe_data_engine.data_engine import DataEngine
 
 IMAGES_CACHE = None
 IMNAME_ANNS_CACHE = None
@@ -44,6 +45,7 @@ def to_serializable(obj):
 
 ######################## Grounding Data Loading Worker ########################
 
+
 def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
     """Worker invoked in subprocesses to build per-image grounding labels."""
     global IMAGES_CACHE, IMNAME_ANNS_CACHE
@@ -54,6 +56,7 @@ def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
         return
     from ultralytics.data.converter import merge_multi_segment
     from ultralytics.data.dataset import segments2boxes
+
     img = IMAGES_CACHE[f"{imid:d}"]
     h, w, f = img["height"], img["width"], img["file_name"]
     im_file = Path(im_dir) / f  # Use the passed im_dir
@@ -78,14 +81,14 @@ def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
         if box[2] <= 0 or box[3] <= 0:
             continue
         caption = ann["caption"]
-        cat_name = " ".join([caption[t[0]:t[1]] for t in ann["tokens_positive"]]).lower().strip()
+        cat_name = " ".join([caption[t[0] : t[1]] for t in ann["tokens_positive"]]).lower().strip()
         if not cat_name:
             continue
         if cat_name not in cat2id:
             cat2id[cat_name] = len(cat2id)
             texts.append([cat_name])
         cls = cat2id[cat_name]
-        box = [cls] + box.tolist()
+        box = [cls, *box.tolist()]
         if box not in bboxes:
             bboxes.append(box)
             if ann.get("segmentation") is not None:
@@ -97,8 +100,12 @@ def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
                     s = (np.concatenate(s, axis=0) / np.array([w, h], dtype=np.float32)).reshape(-1).tolist()
                 else:
                     s = [j for i in ann["segmentation"] for j in i]
-                    s = (np.array(s, dtype=np.float32).reshape(-1, 2) / np.array([w, h], dtype=np.float32)).reshape(-1).tolist()
-                s = [cls] + s
+                    s = (
+                        (np.array(s, dtype=np.float32).reshape(-1, 2) / np.array([w, h], dtype=np.float32))
+                        .reshape(-1)
+                        .tolist()
+                    )
+                s = [cls, *s]
                 segments.append(s)
         bboxes_xyxy.append(ann["bbox"])
     lb = np.array(bboxes, dtype=np.float32) if len(bboxes) else np.zeros((0, 5), dtype=np.float32)
@@ -117,9 +124,8 @@ def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
         "bbox_format": "xywh",
         "texts": texts,
     }
+
     def serializeLabel(label):
-
-
         lc = copy.deepcopy(label)
         lc["im_file"] = str(lc.get("im_file", ""))
         lc["shape"] = list(lc.get("shape", []))
@@ -135,13 +141,14 @@ def _load_grounding_data(buffer_dir, im_dir, imid, anns, folder_name):
         lc["normalized"] = bool(lc.get("normalized", True))
         lc["bbox_format"] = str(lc.get("bbox_format", "xywh"))
         return lc
+
     label_serialized = serializeLabel(label)
     # tmp_file = str(dst_file) + ".tmp"
     import json
+
     with open(dst_file, "w") as file:
         json.dump(label_serialized, file, indent=4, ensure_ascii=False)
     # os.replace(tmp_file, str(dst_file))
-
 
 
 def worker_wrapper(args):
@@ -154,19 +161,21 @@ def init_worker(images_data, imname_anns_data):
     IMAGES_CACHE = images_data
     IMNAME_ANNS_CACHE = imname_anns_data
 
+
 ################################## multi-processing model prediction ############################################
 
-def _batch_model_predict_single_process(self,buffer_dir, im_files, **kwargs):
-    """
-    Batch model predict in a single process. This can be a method of DataEngine.
+
+def _batch_model_predict_single_process(self, buffer_dir, im_files, **kwargs):
+    """Batch model predict in a single process. This can be a method of DataEngine.
+
     Args:
         self: DataEngine instance
         buffer_dir: str, buffer directory to save results
         im_files: list of str, image file paths
-        kwargs: other keyword arguments for model.predict
+        kwargs: other keyword arguments for model.predict.
     """
     assert isinstance(self, DataEngine)
-    engine=self
+    engine = self
     dst_dir = os.path.join(buffer_dir, "model_predict")
     os.makedirs(dst_dir, exist_ok=True)
     conf = kwargs.get("conf", 0.5)
@@ -178,7 +187,9 @@ def _batch_model_predict_single_process(self,buffer_dir, im_files, **kwargs):
         print("All images have been processed, skip.")
         return
     process_img_files = [im_files[i] for i in indices]
-    results = list(engine.model.predict(process_img_files, conf=conf, iou=iou, batch=len(process_img_files), stream=True))
+    results = list(
+        engine.model.predict(process_img_files, conf=conf, iou=iou, batch=len(process_img_files), stream=True)
+    )
     print(f"Processed {len(process_img_files)} images.")
     for i, sample_index in enumerate(indices):
         sample = Sample()
@@ -188,11 +199,9 @@ def _batch_model_predict_single_process(self,buffer_dir, im_files, **kwargs):
     return
 
 
-
 def _device_predict_worker(args):
-    """
-    Worker function for multi-process model prediction on a specific device.
-    args: tuple containing (device, buffer_dir, batches, kwargs)
+    """Worker function for multi-process model prediction on a specific device. args: tuple containing (device,
+    buffer_dir, batches, kwargs).
     """
     device, buffer_dir, batches, kwargs = args
 
@@ -206,21 +215,21 @@ def _device_predict_worker(args):
     for im_files in tqdm(batches, desc=f"Device {device} processing batches"):
         _batch_model_predict_single_process(engine, buffer_dir, im_files, **worker_kwargs)
     return True
+
+
 ##############################################################################
 
 
+def _merge_prediction_to_sample_label(buffer_dir, sample_json, model_predict_json):
+    """Each sample have a file_name, we merge the model prediction results (model_predict_json) into the sample
+    grounding label. step 1: first check the filename match, if false, raise error. step 2: check the dst file
+    exist, if true, skip. step 3: merge model prediction results into sample grounding label, iou score > 0.5 will
+    be ignored. step 4: save the merged label to buffer_dir/merge_prediction/.
 
-def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json):
-    """
-        Each sample have a file_name, we merge the model prediction results (model_predict_json) into the sample grounding label.
-        step 1: first check the filename match, if false, raise error.
-        step 2: check the dst file exist, if true, skip.
-        step 3: merge model prediction results into sample grounding label, iou score > 0.5 will be ignored.
-        step 4: save the merged label to buffer_dir/merge_prediction/
     Args:
         buffer_dir: str, buffer directory to save results
         sample_json: str, path to sample grounding label json file
-        model_predict_json: str, path to model prediction json file
+        model_predict_json: str, path to model prediction json file.
     """
     dst_dir = os.path.join(buffer_dir, "merge_prediction")
     os.makedirs(dst_dir, exist_ok=True)
@@ -238,7 +247,7 @@ def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json
 
     for model_inst in predict_sample.instances:
         # Defensive: skip invalid model instances
-        if getattr(model_inst, 'bbox', None) is None:
+        if getattr(model_inst, "bbox", None) is None:
             print(f"[merge][WARN] skipping model instance with empty bbox in '{sample_json}'")
             continue
         try:
@@ -261,6 +270,7 @@ def _merge_prediction_to_sample_label(buffer_dir,sample_json, model_predict_json
     return True
     # print(f"Merged label saved to {dst_file}")
 
+
 def merge_prediction_worker(args):
     # Support both (idx, buffer_dir, sample_json, model_predict_json) and (buffer_dir, sample_json, model_predict_json)
     try:
@@ -280,13 +290,13 @@ def merge_prediction_worker(args):
         return _merge_prediction_to_sample_label(buffer_dir, sample_json, model_predict_json)
     except Exception as e:
         import traceback
+
         tb = traceback.format_exc()
-        print(f"[worker][ERROR] idx={idx} file='{sample_json}': {repr(e)}\n{tb}")
+        print(f"[worker][ERROR] idx={idx} file='{sample_json}': {e!r}\n{tb}")
         return False
-    
+
 
 ##############################################################################
-
 
 
 class YoloBox:
@@ -386,6 +396,7 @@ class YoloBox:
             ious.append(iou)
         return np.array(ious)
 
+
 class Instance:
     def __init__(self, bbox=None, **kwargs):
         self.bbox = bbox
@@ -406,7 +417,7 @@ class Instance:
     def set_vpe(self, vpe: np.ndarray):
         self.vpe = vpe.squeeze()
 
-    def set_text(self, texts: list, conf: list = None):
+    def set_text(self, texts: list, conf: list | None = None):
         self.text = texts
         self.conf = conf
         assert len(texts) == len(conf)
@@ -418,20 +429,22 @@ class Instance:
 
     def to_dict(self):
         return {
-            'bbox': to_serializable(self.bbox),
-            'text': to_serializable(self.text),
-            'conf': to_serializable(self.conf),
-            'embed': to_serializable(self.embed),
-            'vp': to_serializable(self.vpe),
-            'other_data': to_serializable(self.other_data)
+            "bbox": to_serializable(self.bbox),
+            "text": to_serializable(self.text),
+            "conf": to_serializable(self.conf),
+            "embed": to_serializable(self.embed),
+            "vp": to_serializable(self.vpe),
+            "other_data": to_serializable(self.other_data),
         }
+
     def from_dict(self, data: dict):
-        self.bbox = data.get('bbox')
-        self.text = data.get('text')
-        self.conf = data.get('conf')
-        self.embed = data.get('embed')
-        self.vpe = data.get('vpe')
-        self.other_data = data.get('other_data', {})
+        self.bbox = data.get("bbox")
+        self.text = data.get("text")
+        self.conf = data.get("conf")
+        self.embed = data.get("embed")
+        self.vpe = data.get("vpe")
+        self.other_data = data.get("other_data", {})
+
 
 class Sample:
     def __init__(self):
@@ -445,7 +458,8 @@ class Sample:
         if isinstance(grounding_data, str):
             assert grounding_data.endswith(".json"), "If grounding_data is str, it should be a json file path."
             import json
-            with open(grounding_data, 'r') as f:
+
+            with open(grounding_data) as f:
                 grounding_data = json.load(f)
 
         assert isinstance(grounding_data, dict), "grounding_data should be a dict"
@@ -465,7 +479,9 @@ class Sample:
         self.other_data["normalized"] = normalized
         assert normalized is True
         # assert bbox_format == "xywhn"
-        for cls, box, segment in zip(grounding_data.get("cls", []), grounding_data.get("bboxes", []), grounding_data.get("segments", [])):
+        for cls, box, segment in zip(
+            grounding_data.get("cls", []), grounding_data.get("bboxes", []), grounding_data.get("segments", [])
+        ):
             # Convert normalized xywh to xyxy for internal consistency
             bbox_xyxy = YoloBox(self.shape).load_from_xywhn_normalized(np.array([box], dtype=np.float32)).xyxy[0]
             # Create instance with xyxy bbox
@@ -506,14 +522,14 @@ class Sample:
     #     return grounding_data
 
     def load_from_yoloe_result(self, yoloe_result):
-        
         if isinstance(yoloe_result, str):
             assert yoloe_result.endswith(".json"), "If yoloe_result is str, it should be a json file path."
             import json
-            with open(yoloe_result, 'r') as f:
+
+            with open(yoloe_result) as f:
                 yoloe_result = json.load(f)
             assert isinstance(yoloe_result, dict), "yoloe_result should be a dict"
-            
+
             self.instances = []
             self.im_file = yoloe_result.get("im_file")
             self.shape = (yoloe_result.get("orig_shape", [0, 0])[0], yoloe_result.get("orig_shape", [0, 0])[1])
@@ -535,30 +551,31 @@ class Sample:
 
     def to_dict(self):
         return {
-            'im_file': to_serializable(self.im_file),
-            'instances': [inst.to_dict() for inst in self.instances],
-            'other_data': to_serializable(self.other_data)
+            "im_file": to_serializable(self.im_file),
+            "instances": [inst.to_dict() for inst in self.instances],
+            "other_data": to_serializable(self.other_data),
         }
-    
-
 
     def save_to_json(self, json_path):
         import json
-        with open(json_path, 'w') as f:
+
+        with open(json_path, "w") as f:
             json.dump(self.to_dict(), f, indent=4)
         # print(f"Saved sample to {json_path}")
 
-    def load_from_json(self,json_path):
+    def load_from_json(self, json_path):
         import json
-        with open(json_path, 'r') as f:
+
+        with open(json_path) as f:
             data = json.load(f)
-        self.im_file = data.get('im_file')
+        self.im_file = data.get("im_file")
         self.instances = []
-        for inst_data in data.get('instances', []):
+        for inst_data in data.get("instances", []):
             inst = Instance()
             inst.from_dict(inst_data)
             self.instances.append(inst)
-        self.other_data = data.get('other_data', {})
+        self.other_data = data.get("other_data", {})
+
 
 class DataEngineAgent:
     def __init__(self, devices=["cuda:0"], buffer_dir="/root/ultra_louis_work/engine_buffer"):
@@ -582,10 +599,6 @@ class DataEngineAgent:
             model.set_classes(name_list=texts)
         self.texts = texts
 
-
-
-
-    
     def multi_process_batch_model_predict(self, im_dir, texts=None, conf=0.5, iou=0.4, batch_size=3, max_workers=None):
         im_files = []
         for file_name in os.listdir(im_dir):
@@ -594,7 +607,7 @@ class DataEngineAgent:
 
         # im_files=im_files[:128]
         print(f"Total images to process: {len(im_files)}")
-        batches = [im_files[i:i+batch_size] for i in range(0, len(im_files), batch_size)]
+        batches = [im_files[i : i + batch_size] for i in range(0, len(im_files), batch_size)]
         print(f"Total batches: {len(batches)}, batch size: {batch_size}")
         if not batches:
             return []
@@ -615,7 +628,7 @@ class DataEngineAgent:
             assigned_batches = batches[idx::device_count]
             if not assigned_batches:
                 continue
-            kwargs = {'conf': conf, 'iou': iou, 'texts': texts}
+            kwargs = {"conf": conf, "iou": iou, "texts": texts}
             process_args.append((device, self.buffer_dir, assigned_batches, kwargs))
 
         if not process_args:
@@ -629,13 +642,10 @@ class DataEngineAgent:
             for future in tqdm(as_completed(futures), total=len(futures), desc="Model predict ..."):
                 future.result()
         return results
-    
-
 
         # print(f"Saved sample to {dst_file}")
 
     def multi_process_load_grounding_data(self, im_dir, json_file, merge_within_one_image, max_workers=8):
-
         print("Start multi-process loading of grounding data...")
         self.im_dir = im_dir
         with open(json_file) as f:
@@ -659,7 +669,7 @@ class DataEngineAgent:
             imid_anns[ann["image_id"]].append(ann)
         self.img_path = annotations.get("img_path", "")
         imids = list(imid_anns.keys())
-        
+
         print(f"Total images to process: {len(imids)}")
 
         init_args = (images_data, imname_anns_data)
@@ -673,25 +683,30 @@ class DataEngineAgent:
             chunk_size = max(1, min(500, len(imids) // (worker_count * 4) if worker_count > 0 else 1))
             print(f"Using {worker_count} workers and chunksize: {chunk_size}")
 
-            list(tqdm(executor.map(worker_wrapper, tasks, chunksize=chunk_size), total=len(tasks), desc="Loading grounding data"))
+            list(
+                tqdm(
+                    executor.map(worker_wrapper, tasks, chunksize=chunk_size),
+                    total=len(tasks),
+                    desc="Loading grounding data",
+                )
+            )
 
         print("Finished loading grounding data.")
 
-    def multi_process_merge_prediction(self,json_dir,predict_json_dir,max_workers=8):
-        
-        json_files= []
+    def multi_process_merge_prediction(self, json_dir, predict_json_dir, max_workers=8):
+        json_files = []
         predict_json_files = []
         for sample_file_name in os.listdir(json_dir):
             if sample_file_name.endswith(".json"):
-                json_path= os.path.join(json_dir, sample_file_name)
+                json_path = os.path.join(json_dir, sample_file_name)
                 json_files.append(json_path)
 
                 # read json_path and get im_file name
-                with open(json_path, 'r') as f:
+                with open(json_path) as f:
                     sample_data = json.load(f)
                 im_file = sample_data.get("im_file")
                 im_name = os.path.splitext(os.path.basename(im_file))[0]
-                predict_json_path= os.path.join(predict_json_dir, f"{im_name}.json")
+                predict_json_path = os.path.join(predict_json_dir, f"{im_name}.json")
                 if os.path.exists(predict_json_path):
                     predict_json_files.append(predict_json_path)
                 else:
@@ -738,78 +753,72 @@ class DataEngineAgent:
                 if total % 10000 == 0:
                     print(f"[merge] Progress: {ok}/{total} succeeded")
         print(f"[merge] Done: {ok}/{total} succeeded")
-                
 
     def _merge_predict(self):
         pass
 
 
-
-
 def read_numpy_and_print(path=None):
     def load_dataset_cache_file(path: Path) -> dict:
         import gc
+
         gc.disable()
         cache = np.load(str(path), allow_pickle=True).item()
         gc.enable()
         return cache
+
     path = "/root/ultra_louis_work/engine_buffer/grounding_data/5.cache"
     data = load_dataset_cache_file(path)
     print(data)
 
+
 if __name__ == "__main__":
-
-
-    devices = ["cuda:0","cuda:1","cuda:2","cuda:3"]
+    devices = ["cuda:0", "cuda:1", "cuda:2", "cuda:3"]
 
     # agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/flickr_engine_buffer")
     # json_file = "/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.json"
     # im_dir = "../datasets/flickr/full_images/"
     # mobileclip_text_embed_pt="/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
 
+    DATA = "mixed_grounding"  # "mixed_grounding"
 
-    DATA="mixed_grounding"  # "mixed_grounding"
-
-    if DATA=="flickr":
-
-
+    if DATA == "flickr":
         agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/flickr_engine_buffer")
         json_file = "/root/ultra_louis_work/datasets/flickr/annotations/final_flickr_separateGT_train_segm.json"
         im_dir = "../datasets/flickr/full_images/"
         # mobileclip_text_embed_pt = "/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
-        mobileclip_text_embed_pt=r"/root/ultra_louis_work/datasets/mixed_grounding/gqa/text_embeddings_mobileclip_blt.pt"
-    
+        mobileclip_text_embed_pt = (
+            r"/root/ultra_louis_work/datasets/mixed_grounding/gqa/text_embeddings_mobileclip_blt.pt"
+        )
+
         import torch
+
         txt_map = torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
-        name_list = list   (txt_map.keys())[:50000]
+        name_list = list(txt_map.keys())[:50000]
         # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4, batch_size=2)
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/grounding_data_merged",
-                                            predict_json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/model_predict",
-                                            max_workers=8)
+        agent.multi_process_merge_prediction(
+            json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/grounding_data_merged",
+            predict_json_dir="/root/ultra_louis_work/runs/flickr_engine_buffer/model_predict",
+            max_workers=8,
+        )
 
-    elif DATA=="mixed_grounding":
-
-
+    elif DATA == "mixed_grounding":
         agent = DataEngineAgent(devices=devices, buffer_dir="/root/ultra_louis_work/runs/mixed_engine_buffer")
-        json_file= "../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json"
-        im_dir="../datasets/mixed_grounding/gqa/images"
+        json_file = "../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json"
+        im_dir = "../datasets/mixed_grounding/gqa/images"
         mobileclip_text_embed_pt = "/root/ultra_louis_work/datasets/flickr/text_embeddings_mobileclip_blt.pt"
-    
+
         # import torch
         # txt_map= torch.load(mobileclip_text_embed_pt, map_location="cuda:0")
         # name_list=list(txt_map.keys())[:50000]
         # agent.multi_process_batch_model_predict(im_dir=im_dir, texts=name_list, conf=0.5, iou=0.4,batch_size=2)
 
-
         # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-        agent.multi_process_merge_prediction(json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/grounding_data_merged",
-                                            predict_json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/model_predict",
-                                            max_workers=8)
+        agent.multi_process_merge_prediction(
+            json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/grounding_data_merged",
+            predict_json_dir="/root/ultra_louis_work/runs/mixed_engine_buffer/model_predict",
+            max_workers=8,
+        )
 
     # agent.multi_process_load_grounding_data(json_file=json_file, im_dir=im_dir, merge_within_one_image=True, max_workers=8)
-
-
-
-
-
